@@ -8,7 +8,14 @@ class RenderPDF {
     constructor(options) {
         this.setOptions(options || {});
         this.chrome = null;
-        this.port = Math.floor(Math.random() * 10000 + 1000);
+
+        if (this.options.remoteHost) {
+          this.host = this.options.remoteHost;
+          this.port = this.options.remotePort;
+        } else {
+          this.host = 'localhost';
+          this.port = Math.floor(Math.random() * 10000 + 1000);
+        }
     }
 
     setOptions(options) {
@@ -17,6 +24,8 @@ class RenderPDF {
             printErrors: def('printErrors', true),
             chromeBinary: def('chromeBinary', null),
             chromeOptions: def('chromeOptions', []),
+            remoteHost: def('remoteHost', null),
+            remotePort: def('remotePort', 9222),
             noMargins: def('noMargins', false),
             landscape: def('landscape', undefined),
             paperWidth: def('paperWidth', undefined),
@@ -36,8 +45,7 @@ class RenderPDF {
 
     static async generateSinglePdf(url, filename, options) {
         const renderer = new RenderPDF(options);
-        await renderer.spawnChrome();
-        await renderer.waitForDebugPort();
+        await renderer.connectToChrome();
         try {
             const buff = await renderer.renderPdf(url, renderer.generatePdfOptions());
             fs.writeFileSync(filename, buff);
@@ -50,10 +58,9 @@ class RenderPDF {
 
     static async generatePdfBuffer(url, options) {
         const renderer = new RenderPDF(options);
-        await renderer.spawnChrome();
-        await renderer.waitForDebugPort();
+        await renderer.connectToChrome();
         try {
-            return renderer.renderPdf(url, renderer.generatePdfOptions());
+            return await renderer.renderPdf(url, renderer.generatePdfOptions());
         } catch (e) {
             renderer.error('error:', e);
         } finally {
@@ -63,8 +70,7 @@ class RenderPDF {
 
     static async generateMultiplePdf(pairs, options) {
         const renderer = new RenderPDF(options);
-        await renderer.spawnChrome();
-        await renderer.waitForDebugPort();
+        await renderer.connectToChrome();
         for (const job of pairs) {
             try {
                 const buff = await renderer.renderPdf(job.url, renderer.generatePdfOptions());
@@ -79,18 +85,18 @@ class RenderPDF {
 
     async renderPdf(url, options) {
         return new Promise((resolve, reject) => {
-            CDP({port: this.port}, async (client) => {
+            CDP({host: this.host, port: this.port}, async (client) => {
                 try{
                 this.log(`Opening ${url}`);
                 const {Page, Emulation, LayerTree} = client;
                 await Page.enable();
                 await LayerTree.enable();
 
-                await Page.navigate({url});
-                await Emulation.setVirtualTimePolicy({policy: 'pauseIfNetworkFetchesPending', budget: 100000});
-
                 const loaded = this.cbToPromise(Page.loadEventFired);
                 const jsDone = this.cbToPromise(Emulation.virtualTimeBudgetExpired);
+
+                await Page.navigate({url});
+                await Emulation.setVirtualTimePolicy({policy: 'pauseIfNetworkFetchesPending', budget: 100000});
 
                 await this.profileScope('Wait for load', async () => {
                     await loaded;
@@ -217,6 +223,14 @@ class RenderPDF {
         });
     }
 
+    async connectToChrome() {
+      if (!this.options.remoteHost) {
+        await this.spawnChrome();
+      }
+
+      await this.waitForDebugPort();
+    }
+
     async isCommandExists(cmd) {
         return new Promise((resolve, reject) => {
             commandExists(cmd, (err, exists) => {
@@ -245,6 +259,9 @@ class RenderPDF {
         if (await this.isCommandExists('chromium')) {
             return 'chromium';
         }
+        if (await this.isCommandExists('chromium-browser')) {
+            return 'chromium-browser';
+        }
         // windows
         if (await this.isCommandExists('chrome')) {
             return 'chrome';
@@ -266,15 +283,17 @@ class RenderPDF {
     }
 
     killChrome() {
-        this.chrome.kill(cp.SIGKILL);
+        if (!this.options.remoteHost) {
+            this.chrome.kill(cp.SIGKILL);
+        }
     }
 
     async waitForDebugPort() {
         this.log('Waiting for chrome to became available');
         while (true) {
             try {
-                await this.isPortOpen('localhost', this.port);
-                this.log('Connected!');
+                await this.isPortOpen(this.host, this.port);
+                this.log('Chrome port open!');
                 await this.checkChromeVersion();
                 return;
             } catch (e) {
@@ -284,8 +303,8 @@ class RenderPDF {
     }
 
     async checkChromeVersion() {
-        return new Promise((resolve) => {
-            CDP({port: this.port}, async (client) => {
+        return new Promise((resolve, reject) => {
+            CDP({host: this.host, port: this.port}, async (client) => {
                 try {
                     const {Browser} = client;
                     const version = await Browser.getVersion();
@@ -301,7 +320,7 @@ class RenderPDF {
                     this.error(`Wasn't able to check chrome version, skipping compatibility check.`);
                 }
                 resolve();
-            });
+            }).on('error', e => { reject(e) });
         });
     }
 

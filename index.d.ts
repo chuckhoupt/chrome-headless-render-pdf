@@ -2,7 +2,9 @@ interface IRenderPdfOptions {
     printLogs?: boolean;
     printErrors?: boolean;
     chromeBinary?: string;
-    chromeOptions?: string[],
+    chromeOptions?: string[];
+    remoteHost?: string;
+    remotePort?: string;
     noMargins?: boolean;
     landscape?: boolean;
     includeBackground?: boolean;
