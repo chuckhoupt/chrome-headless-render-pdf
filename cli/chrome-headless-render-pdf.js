@@ -22,12 +22,13 @@ const argv = require('minimist')(process.argv.slice(2), {
         'window-size',
         'paper-width',
         'paper-height',
-        'page-ranges'
+        'page-ranges',
+        'scale',
     ],
     boolean: [
         'no-margins',
         'include-background',
-        'landscape '
+        'landscape'
     ]
 });
 
@@ -107,6 +108,15 @@ if(typeof argv['page-ranges'] === 'string') {
     pageRanges = argv['page-ranges'];
 }
 
+let scale;
+if(typeof argv['scale'] === 'string') {
+    scale = Number(argv['scale']);
+    if(isNaN(scale)) {
+        console.error('--scale must be a number');
+        process.exit(1);
+    }
+}
+
 (async () => {
     try {
         const jobs = generateJobList(urls, pdfs);
@@ -123,6 +133,7 @@ if(typeof argv['page-ranges'] === 'string') {
             paperWidth,
             paperHeight,
             pageRanges,
+            scale
         });
     } catch (e) {
         console.error(e);
@@ -160,6 +171,7 @@ function printHelp() {
     console.log('    --paper-width            specify page width in inches (defaults to 8.5 inches)');
     console.log('    --paper-height           specify page height in inches (defaults to 11 inches)');
     console.log('    --page-ranges            specify pages to render default all pages,  e.g. 1-5, 8, 11-13');
+    console.log('    --scale                  specify scale of the webpage rendering (defaults to 1)');
     console.log('');
     console.log('  Example:');
     console.log('    Render single pdf file');
@@ -167,5 +179,5 @@ function printHelp() {
     console.log('    Render pdf from local file');
     console.log('      chrome-headless-render-pdf --url file:///tmp/example.html --pdf test.pdf');
     console.log('    Render multiple pdf files');
-    console.log('      chrome-headless-render-pdf --url http://google.com --pdf test.pdf --url file:///tmp/example.html --pdf test.pdf');
+    console.log('      chrome-headless-render-pdf --url http://google.com --pdf test.pdf --url file:///tmp/example.html --pdf test2.pdf');
 }
